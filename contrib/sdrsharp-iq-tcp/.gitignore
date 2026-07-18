@@ -1,0 +1,5 @@
+bin/
+obj/
+.sdk-cache/
+# SDR# 本体アセンブリはユーザ各自の SDK zip から build.ps1 が展開する（再配布しない）。
+refs/

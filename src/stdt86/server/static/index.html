@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STD-T86 ライブ受信モニタ</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+         margin: 0; padding: 1.2rem; background: #0e1116; color: #e6edf3; }
+  @media (prefers-color-scheme: light) { body { background: #f6f8fa; color: #1f2328; } }
+  h1 { margin: 0; font-size: 1.25rem; }
+  /* 上部: タイトル + 大きな現在時刻 */
+  .topbar { display: flex; justify-content: space-between; align-items: flex-end;
+            gap: 1rem; flex-wrap: wrap; margin-bottom: .55rem; }
+  .subtitle { opacity: .6; font-size: .78rem; margin-top: .15rem; }
+  .clock { font-size: 2rem; font-weight: 700; line-height: 1; letter-spacing: .04em;
+           font-variant-numeric: tabular-nums; }
+  /* ステータス/操作バー（状態バッジと操作ボタンを左右に分離） */
+  .statusbar { display: flex; justify-content: space-between; align-items: center;
+               gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; padding: .55rem .85rem;
+               background: rgba(127,127,127,.08);
+               border: 1px solid rgba(127,127,127,.2); border-radius: 10px; }
+  .statusbar .status, .statusbar .controls {
+               display: flex; gap: .55rem; align-items: center; flex-wrap: wrap; }
+  .srcinfo { opacity: .55; font-size: .76rem; }
+  /* ダッシュボード: 6 列グリッド。c2/c3/c6 で列幅を指定し、狭幅で段組みを崩す */
+  .dash { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem;
+          align-items: start; }
+  .c2 { grid-column: span 2; } .c3 { grid-column: span 3; } .c6 { grid-column: span 6; }
+  @media (max-width: 1100px) {
+    .dash { grid-template-columns: repeat(2, 1fr); }
+    .c2, .c3 { grid-column: span 1; } .c6 { grid-column: 1 / -1; }
+  }
+  @media (max-width: 640px) {
+    .dash { grid-template-columns: 1fr; }
+    .c2, .c3, .c6 { grid-column: 1 / -1; }
+  }
+  .card { background: rgba(127,127,127,.08); border: 1px solid rgba(127,127,127,.2);
+          border-radius: 10px; padding: 1rem; }
+  h2 { margin: 0 0 .6rem; font-size: .95rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  th, td { text-align: left; padding: .26rem .5rem;
+           border-bottom: 1px solid rgba(127,127,127,.15); }
+  th { font-weight: 600; opacity: .8; white-space: nowrap; }
+  td { font-variant-numeric: tabular-nums; }
+  .badge { display: inline-block; padding: .1rem .6rem; border-radius: 999px;
+           font-size: .8rem; font-weight: 700; }
+  .badge.on { background: #e5484d; color: #fff; animation: blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity: .55; } }
+  .badge.idle { background: rgba(99,212,113,.2); color: #63d471;
+                border: 1px solid #63d471; }
+  .badge.warn { background: rgba(255,180,0,.15); color: #ffb400;
+                border: 1px solid #ffb400; }
+  .badge.off { background: rgba(127,127,127,.2); color: inherit; opacity: .7;
+               border: 1px solid rgba(127,127,127,.4); }
+  .btn { font: inherit; cursor: pointer; padding: .1rem .55rem; border-radius: 999px;
+         font-size: .8rem; font-weight: 700; color: inherit;
+         background: rgba(99,212,113,.2); border: 1px solid #63d471; }
+  .btn.on { background: rgba(255,180,0,.18); border-color: #ffb400; color: #ffb400; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .slots { display: flex; gap: .3rem; }
+  .slot { width: 1.6rem; height: 1.6rem; display: grid; place-items: center;
+          border-radius: 6px; font-size: .8rem;
+          background: rgba(127,127,127,.15); border: 1px solid rgba(127,127,127,.3);
+          opacity: .55; }
+  .slot.used { background: #4da3ff; color: #001; opacity: 1; font-weight: 700;
+               border-color: #4da3ff; }
+  .hist { display: flex; flex-direction: column; gap: .25rem; }
+  .bar { display: grid; grid-template-columns: 9rem 1fr 2.5rem; align-items: center;
+         gap: .4rem; font-size: .8rem; }
+  .bar .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .track { background: rgba(127,127,127,.15); border-radius: 4px; height: .65rem; }
+  .bar .fill { display: block; height: 100%; background: #4da3ff; border-radius: 4px; }
+  .bar .n { text-align: right; font-variant-numeric: tabular-nums; opacity: .8; }
+  canvas { width: 100%; border-radius: 8px; display: block;
+           background: #000; image-rendering: pixelated; }
+  pre#log { font-size: .74rem; line-height: 1.45; max-height: 320px; overflow-y: auto;
+            background: rgba(0,0,0,.25); border-radius: 8px; padding: .6rem;
+            margin: 0; white-space: pre-wrap; word-break: break-all; }
+  /* 通報が多いとタイムラインが伸びるので高さを制限してスクロール（新しい順） */
+  #windows { max-height: 300px; overflow-y: auto; }
+  .win { border: 1px solid rgba(127,127,127,.25); border-radius: 8px;
+         padding: .5rem .7rem; margin-bottom: .5rem; font-size: .85rem; }
+  .win.active { border-color: #e5484d; }
+  .win .meta { opacity: .75; font-size: .78rem; }
+  button { font: inherit; padding: .3rem .8rem; border-radius: 8px; cursor: pointer;
+           border: 1px solid rgba(127,127,127,.4); background: rgba(127,127,127,.12);
+           color: inherit; }
+  button.on { background: #4da3ff; color: #001; border-color: #4da3ff; font-weight: 700; }
+  .note { font-size: .76rem; opacity: .65; margin-top: .4rem; }
+  .qstat { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+           gap: .5rem; margin-bottom: .7rem; }
+  .qstat .item { background: rgba(127,127,127,.1); border-radius: 8px;
+                 padding: .4rem .6rem; }
+  .qstat .k { font-size: .7rem; opacity: .7; }
+  .qstat .v { font-size: 1.05rem; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .logfilters { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .8rem;
+                margin-bottom: .5rem; opacity: .85; }
+  .logfilters label { display: flex; align-items: center; gap: .3rem;
+                      cursor: pointer; user-select: none; }
+  #constel { background: #000; max-width: 260px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div>
+    <h1>STD-T86 ライブ受信モニタ</h1>
+    <div class="subtitle">市町村デジタル同報通信システム / 60MHz帯 16QAM TDMA-TDD</div>
+  </div>
+  <div class="clock" id="nowClock">--:--:--</div>
+</header>
+
+<div class="statusbar">
+  <div class="status">
+    <span id="conn" class="badge off">接続中…</span>
+    <span id="lock" class="badge off">同期 —</span>
+    <span id="bcast" class="badge idle">待機中</span>
+    <span id="src" class="srcinfo"></span>
+  </div>
+  <div class="controls">
+    <button id="squelchBtn" class="btn" disabled
+      title="電力スケルチ: 弱いスロットをノイズとして棄却する処理。OFF にすると悪条件でも全スロットの復号を試みます（誤検出は増えます）。">スケルチ —</button>
+    <button id="bcastStrictBtn" class="btn" disabled
+      title="通報の誤検知抑制: ON=CRC 一致した通報開始/終了のみ採用（ノイズによる偽の通報を抑える）。OFF=CRC 不一致でも反復で確定（低 SNR で拾えるが誤検知しやすい）。">誤検知抑制 —</button>
+    <button id="cfoResetBtn" class="btn"
+      title="CFO 追尾が誤ったオフセットに居着いたとき、粗捕捉からやり直します。">CFO リセット</button>
+  </div>
+</div>
+
+<div class="dash">
+  <!-- 主要情報: 制御チャネル状態 と 通報タイムライン -->
+  <section class="card c3">
+    <h2>制御チャネル状態</h2>
+    <table id="ctrlTable"></table>
+  </section>
+
+  <section class="card c3">
+    <h2>通報（放送）タイムライン</h2>
+    <div id="windows"><div class="note">通報開始指示(0x22) 待ち…</div></div>
+    <div class="note">※ 実運用波の音声 S-Codec 伝送路 FEC は規格ドラフト §5.4 と異なることが
+    判明しており（既知の未解読部分）、実波では正常な音声になりません。デコードは常に
+    「試行」として実行され、CRC7 統計と試行音声を報告します。</div>
+  </section>
+
+  <!-- 診断: 信号品質 / ウォーターフォール / コンスタレーション -->
+  <section class="card c3">
+    <h2>信号品質</h2>
+    <div class="qstat" id="qstat"></div>
+  </section>
+
+  <section class="card c3">
+    <h2>コンスタレーション（16QAM）</h2>
+    <canvas id="constel" width="220" height="220"></canvas>
+    <div class="note">EVM 最良スロットの補正済みシンボル（200ms 更新）</div>
+  </section>
+
+  <!-- 統計: メッセージ種別 / TCH 種別 -->
+  <section class="card c3">
+    <h2>メッセージ種別</h2>
+    <div class="hist" id="typeHist"></div>
+  </section>
+
+  <section class="card c3">
+    <h2>TCH チャネル種別（累計）</h2>
+    <div class="hist" id="tchHist"></div>
+  </section>
+
+  <!-- ログ（全幅） -->
+  <section class="card c6">
+    <h2>デコードログ</h2>
+    <div class="logfilters" id="logFilters">
+      <label><input type="checkbox" data-group="control" checked> 制御メッセージ</label>
+      <label><input type="checkbox" data-group="broadcast" checked> 通報</label>
+      <label><input type="checkbox" data-group="audio" checked> 音声</label>
+      <label><input type="checkbox" data-group="system" checked> システム</label>
+      <label title="CRC 不一致（CRC×）の制御メッセージを表示するか"><input type="checkbox" data-group="crcfail"> CRC不一致</label>
+    </div>
+    <pre id="log"></pre>
+  </section>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = (v, unit="", digits=1) =>
+  (v === null || v === undefined) ? "—" : `${Number(v).toFixed(digits)}${unit}`;
+const hms = t => { t = Math.max(0, t|0);
+  return `${String(t/3600|0).padStart(2,"0")}:${String(t/60%60|0).padStart(2,"0")}:${String(t%60|0).padStart(2,"0")}`; };
+const hhmmss = d =>
+  `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
+// 現在時刻（受信中の時計。起動からの経過ではなく実時刻）
+const clock = () => hhmmss(new Date());
+// 通報などの絶対時刻はバックエンド（サーバの実時計 epoch ms）を表示する。
+const wallClock = ms => (ms == null ? "—" : hhmmss(new Date(ms)));
+
+// ---- 状態 -------------------------------------------------------------
+const S = { control: null, quality: {}, windows: {}, tch: {}, logEntries: [],
+            tuning: {}, broadcastActive: false, squelchEnabled: true,
+            broadcastStrict: true };
+const LOG_MAX = 500;
+// ログ種類フィルタ（チェックボックスと連動）
+const logFilters = { control: true, broadcast: true, audio: true, system: true,
+                     crcfail: false };  // CRC 不一致ログは既定で非表示
+// CRC 不一致（CRC×）の制御メッセージか
+const isCrcFail = ev => ev.type === "control_msg" && !ev.crc_ok;
+const logGroup = t =>
+  t === "control_msg" ? "control"
+  : (t === "broadcast_start" || t === "broadcast_end" || t === "broadcast_update")
+    ? "broadcast"
+  : t === "audio_status" ? "audio" : "system";
+
+// ---- 描画 -------------------------------------------------------------
+function renderControl() {
+  const c = S.control || {};
+  const used = new Set(c.slot_usage || []);
+  const slots = Array.from({length: 6}, (_, i) =>
+    `<span class="slot ${used.has(i) ? "used" : ""}">${i}</span>`).join("");
+  const mfr = Object.entries(c.manufacturers || {})
+    .map(([k, v]) => `${esc(k)}×${v}`).join("、") || "—";
+  let muni;
+  if (c.searching) {
+    muni = "スクランブル値を自動解析中…";
+  } else if (c.municipality) {
+    muni = `<b>${esc(c.municipality)}</b>`;
+  } else if ((c.candidates || []).length) {
+    // 下位9bitしか電波に乗らないため一意に特定できない → 候補を1行ずつ列挙
+    muni = c.candidates.map(([code, name]) =>
+      `<div>${code} ${esc(name)}</div>`).join("") +
+      `<div class="note">候補 ${c.candidates.length} 件（コード下位9bitのみ判明）</div>`;
+  } else {
+    muni = "—";
+  }
+  const rows = [
+    ["市区町村", muni],
+    ["スクランブル値", c.searching ? "解析中…" : (c.seed ?? "—")],
+    ["使用スロット", `<div class="slots">${slots}</div>`],
+    ["製造者", mfr],
+    ["拡声中フラグ (BCCH)", c.broadcast_active ? "1 (拡声中)" : "0"],
+    ["親局送信モード", esc(c.parent_mode ?? "—")],
+    ["スーパーフレーム長", c.superframe_len ?? "—"],
+    ["復号メッセージ数", `${c.valid ?? 0} / ${c.total ?? 0}（CRC一致 ${c.crc_ok ?? 0}）`],
+  ];
+  $("ctrlTable").innerHTML =
+    rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
+  renderBcastBadge();
+}
+// ヘッダのバッジは PCH 状態機械のリアルタイム通報状態
+// （BCCH の拡声中フラグは履歴の多数決で残留するためテーブル行に分離）
+function renderBcastBadge() {
+  $("bcast").className = "badge " + (S.broadcastActive ? "on" : "idle");
+  $("bcast").textContent = S.broadcastActive ? "通報中" : "待機中";
+}
+function renderSquelch() {
+  const btn = $("squelchBtn");
+  btn.disabled = false;
+  // OFF（無効化）のときは警告色で目立たせる。ボタン文字は現在状態を示す。
+  btn.className = "btn" + (S.squelchEnabled ? "" : " on");
+  btn.textContent = S.squelchEnabled ? "スケルチ ON" : "スケルチ OFF";
+}
+let squelchBusy = false;
+$("squelchBtn").addEventListener("click", async () => {
+  if (squelchBusy) return;
+  squelchBusy = true;
+  const next = !S.squelchEnabled;  // トグル
+  S.squelchEnabled = next;         // 楽観的に即反映
+  renderSquelch();
+  try {
+    const r = await fetch(`/api/squelch?enabled=${next}`, { method: "POST" });
+    const j = await r.json();
+    if (typeof j.squelch_enabled === "boolean") S.squelchEnabled = j.squelch_enabled;
+  } catch (e) {
+    /* 失敗時は楽観値を維持 */
+  } finally {
+    squelchBusy = false;
+    renderSquelch();
+  }
+});
+function renderBcastStrict() {
+  const btn = $("bcastStrictBtn");
+  btn.disabled = false;
+  // OFF（従来モード＝誤検知しやすい）を警告色で示す。
+  btn.className = "btn" + (S.broadcastStrict ? "" : " on");
+  btn.textContent = S.broadcastStrict ? "誤検知抑制 ON" : "誤検知抑制 OFF";
+}
+let bcastStrictBusy = false;
+$("bcastStrictBtn").addEventListener("click", async () => {
+  if (bcastStrictBusy) return;
+  bcastStrictBusy = true;
+  const next = !S.broadcastStrict;
+  S.broadcastStrict = next;        // 楽観的に即反映
+  renderBcastStrict();
+  try {
+    const r = await fetch(`/api/broadcast_strict?enabled=${next}`, { method: "POST" });
+    const j = await r.json();
+    if (typeof j.broadcast_strict === "boolean") S.broadcastStrict = j.broadcast_strict;
+  } catch (e) {
+    /* 失敗時は楽観値を維持 */
+  } finally {
+    bcastStrictBusy = false;
+    renderBcastStrict();
+  }
+});
+$("cfoResetBtn").addEventListener("click", async () => {
+  const btn = $("cfoResetBtn");
+  if (btn.disabled) return;
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "再捕捉中…";
+  try {
+    await fetch("/api/cfo/reset", { method: "POST" });
+  } catch (e) {
+    /* 失敗は無視（次のクリックで再試行可能） */
+  } finally {
+    setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 800);
+  }
+});
+function renderHist(el, counts) {
+  const entries = Object.entries(counts || {}).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((s, [, v]) => s + v, 0) || 1;
+  el.innerHTML = entries.map(([k, v]) =>
+    `<div class="bar"><span class="lbl">${esc(k)}</span>` +
+    `<span class="track"><span class="fill" style="width:${(v/total*100).toFixed(0)}%"></span></span>` +
+    `<span class="n">${v}</span></div>`).join("") ||
+    `<div class="note">—</div>`;
+}
+function renderQuality() {
+  const q = S.quality;
+  const items = [
+    ["チャネル f0", S.tuning.f0_hz == null ? "探索中" : (S.tuning.f0_hz/1e3).toFixed(1)+" kHz"],
+    ["CFO", fmt(q.cfo_hz, " Hz")],
+    ["EVM 中央", fmt(q.evm_median, " %")],
+    ["EVM 最良", fmt(q.evm_best, " %")],
+    ["CRC16 一致率", q.crc_ok_rate == null ? "—" : (q.crc_ok_rate*100).toFixed(1)+" %"],
+    ["msg/s", fmt(q.msgs_per_s, "")],
+    ["入力レベル", fmt(q.level_dbfs, " dBFS")],
+    ["取りこぼし", q.overflows ?? 0],
+  ];
+  $("qstat").innerHTML = items.map(([k, v]) =>
+    `<div class="item"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+  $("lock").className = "badge " + (q.sync_locked ? "idle" : "warn");
+  $("lock").textContent = q.sync_locked ? "同期 OK" : "同期 なし";
+}
+function renderWindows() {
+  const ids = Object.keys(S.windows).map(Number).sort((a, b) => b - a);
+  if (!ids.length) return;
+  $("windows").innerHTML = ids.map(id => {
+    const w = S.windows[id], a = w.audio || {};
+    const active = w.t_end == null;
+    const dur = w.t_end != null && w.t_start != null
+      ? `（${(w.t_end - w.t_start).toFixed(1)} 秒)` : "";
+    const audio = a.frames
+      ? `音声フレーム ${a.frames} / CRC7一致 ${a.crc7_ok}` +
+        (a.filled ? ` / 欠落補間 ${a.filled}` : "") +
+        ` / 試行デコード ${fmt(a.decoded_seconds, "s")}` +
+        (a.decode_attempted ? ` — <a href="/api/audio/${id}.wav">WAV</a>` : "")
+      : "音声フレーム待ち…";
+    const saved = a.wav_path ? `<div class="meta">保存先: ${esc(a.wav_path)}</div>` : "";
+    const note = (a.note ? `<div class="meta">${esc(a.note)}</div>` : "") + saved;
+    // 時刻はバックエンド管理の実時刻(wall_*)のみを表示する。
+    const end = w.t_end != null ? wallClock(w.wall_end) : "…";
+    // 報知対象（通報開始指示の子局識別番号から。0x22 が CRC 一致すれば確定）
+    const target = w.target && w.target.label
+      ? ` <span class="badge ${w.target.kind === "selective" ? "warn" : "off"}">対象: ${esc(w.target.label)}</span>`
+      : "";
+    return `<div class="win ${active ? "active" : ""}">` +
+      `<b>通報 #${id}</b>${target} ${wallClock(w.wall_start)} → ${end} ${dur}` +
+      `<div class="meta">${audio}</div>${note}</div>`;
+  }).join("");
+}
+function renderLog() {
+  const el = $("log");
+  el.textContent = S.logEntries
+    .filter(e => logFilters[e.group] && (!e.crcFail || logFilters.crcfail))
+    .map(e => e.text).join("\n");
+  el.scrollTop = el.scrollHeight;  // 常に最下部を表示
+}
+function addLog(text, group = "system", crcFail = false) {
+  S.logEntries.push({ group, text, crcFail });
+  if (S.logEntries.length > LOG_MAX)
+    S.logEntries.splice(0, S.logEntries.length - LOG_MAX);
+  renderLog();
+}
+$("logFilters").addEventListener("change", e => {
+  if (e.target.dataset.group) {
+    logFilters[e.target.dataset.group] = e.target.checked;
+    renderLog();
+  }
+});
+const logLine = ev => {
+  const t = hms(ev.t ?? 0);
+  if (ev.type === "control_msg")
+    return `${t} [${ev.channel}] ${ev.name}${ev.crc_ok ? "" : " (CRC×)"} ${ev.raw_hex}`;
+  if (ev.type === "broadcast_start")
+    return `${t} ◆ 通報開始 #${ev.window_id}` +
+      (ev.target && ev.target.label ? `（報知対象: ${ev.target.label}）` : "");
+  if (ev.type === "broadcast_end") return `${t} ◇ 通報終了 #${ev.window_id}`;
+  if (ev.type === "broadcast_update")
+    return `${t} ◆ 通報 #${ev.window_id} 報知対象を確定: ${ev.target?.label ?? "—"}`;
+  if (ev.type === "audio_status")
+    return `${t} ♪ 通報#${ev.window_id} frames=${ev.frames} crc7ok=${ev.crc7_ok}`
+      + (ev.filled ? ` filled=${ev.filled}` : "") + ` ${ev.note || ""}`;
+  if (ev.type === "log") return `${t} ${ev.text}`;
+  return null;
+};
+
+// ---- コンスタレーション ----------------------------------------------------
+const cn = $("constel"), cctx = cn.getContext("2d");
+function renderConstellation(points) {
+  cctx.fillStyle = "rgba(0,0,0,.35)";  // 残光フェード
+  cctx.fillRect(0, 0, cn.width, cn.height);
+  const cx = cn.width / 2, cy = cn.height / 2, sc = cn.width / 3.2;
+  cctx.strokeStyle = "rgba(255,255,255,.18)";
+  cctx.beginPath();
+  cctx.moveTo(cx, 0); cctx.lineTo(cx, cn.height);
+  cctx.moveTo(0, cy); cctx.lineTo(cn.width, cy);
+  cctx.stroke();
+  cctx.fillStyle = "#4da3ff";
+  for (const [re, im] of points) {
+    cctx.fillRect(cx + re * sc - 1, cy - im * sc - 1, 2, 2);
+  }
+}
+
+// ---- イベント処理 --------------------------------------------------------
+function applySnapshot(s) {
+  S.control = s.control; S.quality = s.quality || {}; S.quality.t = s.t;
+  S.tuning = s.tuning || {};
+  S.windows = {};
+  for (const [k, v] of Object.entries(s.windows || {})) S.windows[k] = v;
+  S.tch = s.tch_counts || {};
+  S.logEntries = (s.recent_log || []).map(ev => {
+    const text = logLine(ev);
+    return text ? { group: logGroup(ev.type), text, crcFail: isCrcFail(ev) } : null;
+  }).filter(Boolean);
+  $("src").textContent = s.source || "";
+  if (s.squelch_enabled !== undefined) S.squelchEnabled = !!s.squelch_enabled;
+  renderSquelch();
+  if (s.broadcast_strict !== undefined) S.broadcastStrict = !!s.broadcast_strict;
+  renderBcastStrict();
+  S.broadcastActive = !!(s.broadcast && s.broadcast.active);
+  if (s.broadcast && s.broadcast.active && s.broadcast.window_id != null &&
+      !S.windows[s.broadcast.window_id])
+    S.windows[s.broadcast.window_id] = { t_start: s.broadcast.started_t, t_end: null };
+  renderControl(); renderQuality(); renderWindows();
+  renderHist($("typeHist"), S.control?.type_counts);
+  renderHist($("tchHist"), S.tch);
+  renderLog();
+}
+function onEvent(ev) {
+  switch (ev.type) {
+    case "snapshot": applySnapshot(ev); break;
+    case "control_summary":
+      S.control = ev.control; renderControl();
+      renderHist($("typeHist"), S.control?.type_counts); break;
+    case "quality": S.quality = ev; renderQuality(); break;
+    case "constellation": renderConstellation(ev.points); break;
+    case "seed_detected": {
+      const names = (ev.candidates || []).map(x => x[1]).join("、");
+      addLog(`${hms(ev.t)} ★ スクランブル値自動判定: ${ev.seed}（候補: ${names}）`);
+      break;
+    }
+    case "tch_second":
+      for (const [k, v] of Object.entries(ev.counts)) S.tch[k] = (S.tch[k] || 0) + v;
+      renderHist($("tchHist"), S.tch); break;
+    case "broadcast_start":
+      S.windows[ev.window_id] = { t_start: ev.t, t_end: null,
+                                  wall_start: ev.wall_ms, wall_end: null,
+                                  target: ev.target || null };
+      S.broadcastActive = true; renderBcastBadge(); renderWindows(); break;
+    case "broadcast_update": {
+      const w = (S.windows[ev.window_id] ||= { t_start: null, t_end: null });
+      w.target = ev.target || null; renderWindows(); break;
+    }
+    case "broadcast_end": {
+      const w = (S.windows[ev.window_id] ||= { t_start: null });
+      w.t_end = ev.t; w.wall_end = ev.wall_ms;
+      S.broadcastActive = false; renderBcastBadge(); renderWindows(); break;
+    }
+    case "audio_status":
+      (S.windows[ev.window_id] ||= { t_start: null, t_end: null }).audio = ev;
+      renderWindows(); break;
+  }
+  const line = logLine(ev);
+  if (line) addLog(line, logGroup(ev.type), isCrcFail(ev));
+}
+
+// ---- 再接続つき WebSocket -------------------------------------------------
+let backoff = 500;
+function connect() {
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  ws.onopen = () => { backoff = 500;
+    $("conn").className = "badge idle"; $("conn").textContent = "接続"; };
+  ws.onmessage = e => onEvent(JSON.parse(e.data));
+  ws.onclose = () => {
+    $("conn").className = "badge warn"; $("conn").textContent = "再接続中…";
+    setTimeout(connect, backoff = Math.min(backoff * 2, 10000));
+  };
+  ws.onerror = () => ws.close();
+}
+connect();
+// ヘッダの現在時刻を毎秒更新（起動直後に即表示してから 1 秒間隔で更新）。
+const tickClock = () => { $("nowClock").textContent = clock(); };
+tickClock();
+setInterval(tickClock, 1000);
+
+// ---- 音声ストリーミング再生（常時・Web Audio + ジッタバッファ） -------------
+// AudioContext はブラウザの自動再生制限で suspended から始まることがあるため、
+// 最初のページ操作（クリック等）で自動 resume する。
+let audioCtx = null, playhead = 0;
+const JITTER = 0.6;  // 秒
+function ensureAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    playhead = 0;
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+for (const evName of ["pointerdown", "keydown"])
+  document.addEventListener(evName, () => ensureAudioCtx(), { once: false });
+function connectAudio() {
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/audio`);
+  ws.binaryType = "arraybuffer";
+  ws.onmessage = e => {
+    const ctx = ensureAudioCtx();
+    const pcm = new Int16Array(e.data, 8);
+    if (!pcm.length || ctx.state !== "running") return;
+    const buf = ctx.createBuffer(1, pcm.length, 16000);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+    const srcNode = ctx.createBufferSource();
+    srcNode.buffer = buf; srcNode.connect(ctx.destination);
+    const now = ctx.currentTime;
+    if (playhead < now + 0.05) playhead = now + JITTER;  // 枯渇→ジッタ分待って再同期
+    srcNode.start(playhead);
+    playhead += buf.duration;
+  };
+  ws.onclose = () => setTimeout(connectAudio, 1000);
+  ws.onerror = () => ws.close();
+}
+ensureAudioCtx();
+connectAudio();
+</script>
+</body>
+</html>

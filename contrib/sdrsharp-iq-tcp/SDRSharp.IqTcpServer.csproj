@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      TFM は公式プラグイン SDK（sdrplugins/Empty サンプル）に合わせて net9.0-windows。
+      SDR# は SDRSharp.dotnet9.exe（.NET 9 ホスト）で起動すること。
+    -->
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <OutputType>Library</OutputType>
+    <Platforms>AnyCPU</Platforms>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- 自動生成の [SupportedOSPlatform("windows")] を有効にして WinForms の
+         CA1416（プラットフォーム互換）警告を抑止する。 -->
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>SDRSharp.IqTcpServer</AssemblyName>
+    <RootNamespace>SDRSharp.IqTcpServer</RootNamespace>
+
+    <!-- SDRSharp.Common.dll / SDRSharp.Radio.dll の置き場所（build.ps1 が SDK zip から展開）。
+         別の場所を使うなら: dotnet build -c Release -p:RefsDir="D:\path\to\lib" -->
+    <RefsDir Condition="'$(RefsDir)' == ''">$(MSBuildProjectDirectory)\refs</RefsDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SDR# 本体アセンブリ（参照のみ・出力へはコピーしない）。 -->
+    <Reference Include="SDRSharp.Common">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>$(RefsDir)\SDRSharp.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SDRSharp.Radio">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>$(RefsDir)\SDRSharp.Radio.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

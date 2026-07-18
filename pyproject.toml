@@ -1,0 +1,47 @@
+[project]
+name = "stdt86"
+version = "0.1.0"
+description = "OSS receiver/decoder for ARIB STD-T86 (Japanese municipal digital simultaneous broadcasting, 60 MHz / 16QAM / TDMA-TDD)"
+readme = "readme.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "matplotlib>=3.8",
+    "soundfile>=0.12",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "websockets>=12",
+]
+
+[project.optional-dependencies]
+# Real-time capture straight from an RTL-SDR (milestone M7).
+rtlsdr = ["pyrtlsdr>=0.3"]
+
+[project.scripts]
+stdt86 = "stdt86.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stdt86"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

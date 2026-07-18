@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+uv.lock
+
+# Project artifacts
+figures/
+logs/
+
+build/
+
+# Recorded I/Q captures (can be large)
+*.cu8
+*.cf32
+*.iq
+
+# OS
+.DS_Store
+
+.claude

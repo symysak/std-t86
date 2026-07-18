@@ -1,0 +1,5 @@
+:%s#ITU-T 7/14kHz Audio Coder Candidate (G.722.1 Annex C) Source Code#ITU-T G.722.1 (2005-05) - Fixed point implementation for main body and Annex C#
+o**   > Software Release 2.1 (2008-06)
+**     (Simple repackaging; no change from 2005-05 Release 2.0 code)
+:w!
+:q
