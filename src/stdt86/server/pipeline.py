@@ -35,6 +35,14 @@ class Pipeline:
         self.audio = AudioWorker(seed, self.state, self._emit,
                                  lambda wid, pcm: self.pcm_q.put((wid, pcm)),
                                  log_dir=audio_log_dir)
+        self.iq_recorder = None
+        if audio_log_dir:
+            from stdt86.server.iq_recorder import IQRecorder
+
+            self.iq_recorder = IQRecorder(
+                source.fs, 0.0 if f0 is None else f0, audio_log_dir,
+                emit=self._emit, state=self.state,
+                sidecar_refresh=self.audio.refresh_sidecar)
         self._chunk = max(1, int(source.fs * CHUNK_SECONDS))
         self._samples_q: queue.Queue = queue.Queue(maxsize=SAMPLE_QUEUE_CHUNKS)
         self._stop = threading.Event()
@@ -60,6 +68,8 @@ class Pipeline:
 
     def start(self) -> None:
         self.audio.start()
+        if self.iq_recorder is not None:
+            self.iq_recorder.start()
         self._reader.start()
         self._dsp.start()
 
@@ -92,6 +102,8 @@ class Pipeline:
         self._reader.join(timeout=5.0)
         self._dsp.join(timeout=10.0)
         self.audio.stop()
+        if self.iq_recorder is not None:
+            self.iq_recorder.stop()
 
     @staticmethod
     def _now_ms() -> int:
@@ -100,7 +112,7 @@ class Pipeline:
     def _emit(self, ev: dict) -> None:
         self.event_q.put(ev)
         if ev.get("type") in ("control_msg", "broadcast_start", "broadcast_end",
-                              "broadcast_update", "audio_status", "log"):
+                              "broadcast_update", "audio_status", "iq_status", "log"):
             self.state.add_log(ev)
 
 
@@ -162,6 +174,8 @@ class Pipeline:
                 break
             in_count += len(chunk)
             t_in = now_t()
+            if self.iq_recorder is not None:
+                self.iq_recorder.push(chunk)
 
             if self._cfo_reset_req.is_set():
                 self._cfo_reset_req.clear()
@@ -220,6 +234,8 @@ class Pipeline:
         w = self.decoder.broadcast.open
         if w is not None:
             self.audio.window_closed(w.window_id)
+            if self.iq_recorder is not None:
+                self.iq_recorder.window_closed(w.window_id)
         self.state.sync_locked = False
         self.finished.set()
         self.event_q.put(events.log_event(now_t(), "ソース終端に達しました。"))
@@ -250,6 +266,8 @@ class Pipeline:
             wall = self._now_ms()
             self.state.broadcast_started(w.window_id, t, wall, target=w.target)
             self.audio.set_window_target(w.window_id, w.target)
+            if self.iq_recorder is not None:
+                self.iq_recorder.window_opened(w.window_id, w.target)
             self._emit(events.broadcast_event("start", t, w.window_id, wall_ms=wall,
                                               target=w.target))
             if w.target:
@@ -273,6 +291,8 @@ class Pipeline:
             self.state.broadcast_ended(w.window_id, t, wall)
             self._emit(events.broadcast_event("end", t, w.window_id, wall_ms=wall))
             self.audio.window_closed(w.window_id)
+            if self.iq_recorder is not None:
+                self.iq_recorder.window_closed(w.window_id)
         if res.evms:
             self.state.evm_median = float(np.median(res.evms))
             self.state.evm_best = float(np.min(res.evms))

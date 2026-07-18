@@ -112,6 +112,16 @@ def create_app(pipeline: Pipeline) -> FastAPI:
         pipeline.request_cfo_reset()
         return JSONResponse({"ok": True})
 
+    @app.get("/api/iq/{window_id}.wav")
+    async def iq_wav(window_id: int):
+        info = pipeline.state.window_info(window_id) or {}
+        path = (info.get("iq") or {}).get("path")
+        if not path or not Path(path).exists():
+            return JSONResponse({"error": "この通報ウィンドウの IQ 録音はありません"},
+                                status_code=404)
+        return FileResponse(path, media_type="audio/wav",
+                            filename=Path(path).name)
+
     @app.get("/api/audio/{window_id}.wav")
     async def audio_wav(window_id: int):
         pcm = pipeline.audio.window_pcm(window_id)

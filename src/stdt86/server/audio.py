@@ -80,6 +80,9 @@ class AudioWorker:
     def window_closed(self, window_id: int) -> None:
         self._q.put(("close", window_id, None))
 
+    def refresh_sidecar(self, window_id: int) -> None:
+        self._q.put(("sidecar", window_id, None))
+
 
     def _run(self) -> None:
         while True:
@@ -105,6 +108,13 @@ class AudioWorker:
                     self._decode_batch(wid)
             elif kind == "close":
                 self._decode_batch(wid)
+            elif kind == "sidecar":
+                st = self._stats.get(wid)
+                if st and st.get("wav_path"):
+                    try:
+                        self._write_sidecar(wid, st)
+                    except Exception:
+                        pass
 
     def _stat(self, wid: int) -> dict:
         return self._stats.setdefault(
@@ -178,6 +188,13 @@ class AudioWorker:
             f"デコード秒数: {st['decoded_seconds']:.1f}",
             f"WAV: {st['wav_path']}",
         ]
+        iq = win.get("iq")
+        if iq:
+            lines.append(f"IQ 録音: {iq.get('path')}"
+                         f"（{iq.get('seconds')}s, {iq.get('fs')}Hz 複素, "
+                         "オフセット0で再デコード可）")
+            if iq.get("note"):
+                lines.append(f"  注記: {iq['note']}")
         Path(st["wav_path"] + ".txt").write_text(
             "\n".join(lines) + "\n", encoding="utf-8")
 

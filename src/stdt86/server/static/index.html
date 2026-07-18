@@ -210,7 +210,7 @@ const logGroup = t =>
   t === "control_msg" ? "control"
   : (t === "broadcast_start" || t === "broadcast_end" || t === "broadcast_update")
     ? "broadcast"
-  : t === "audio_status" ? "audio" : "system";
+  : (t === "audio_status" || t === "iq_status") ? "audio" : "system";
 
 // ---- 描画 -------------------------------------------------------------
 function renderControl() {
@@ -358,7 +358,11 @@ function renderWindows() {
         (a.decode_attempted ? ` — <a href="/api/audio/${id}.wav">WAV</a>` : "")
       : "音声フレーム待ち…";
     const saved = a.wav_path ? `<div class="meta">保存先: ${esc(a.wav_path)}</div>` : "";
-    const note = (a.note ? `<div class="meta">${esc(a.note)}</div>` : "") + saved;
+    const iq = w.iq && w.iq.path
+      ? `<div class="meta">IQ 録音: <a href="/api/iq/${id}.wav">${esc(String(w.iq.seconds ?? "?"))}s @ ${esc(String(w.iq.fs ?? "?"))}Hz</a>` +
+        (w.iq.done ? "" : "（録音中…）") + `</div>`
+      : "";
+    const note = (a.note ? `<div class="meta">${esc(a.note)}</div>` : "") + saved + iq;
     // 時刻はバックエンド管理の実時刻(wall_*)のみを表示する。
     const end = w.t_end != null ? wallClock(w.wall_end) : "…";
     // 報知対象（通報開始指示の子局識別番号から。0x22 が CRC 一致すれば確定）
@@ -402,6 +406,9 @@ const logLine = ev => {
   if (ev.type === "audio_status")
     return `${t} ♪ 通報#${ev.window_id} frames=${ev.frames} crc7ok=${ev.crc7_ok}`
       + (ev.filled ? ` filled=${ev.filled}` : "") + ` ${ev.note || ""}`;
+  if (ev.type === "iq_status")
+    return `${t} ◎ 通報#${ev.window_id} IQ録音 ${ev.seconds}s @ ${ev.fs}Hz`
+      + (ev.done ? " (確定)" : "") + (ev.note ? ` ${ev.note}` : "");
   if (ev.type === "log") return `${t} ${ev.text}`;
   return null;
 };
@@ -480,6 +487,9 @@ function onEvent(ev) {
     }
     case "audio_status":
       (S.windows[ev.window_id] ||= { t_start: null, t_end: null }).audio = ev;
+      renderWindows(); break;
+    case "iq_status":
+      (S.windows[ev.window_id] ||= { t_start: null, t_end: null }).iq = ev;
       renderWindows(); break;
   }
   const line = logLine(ev);

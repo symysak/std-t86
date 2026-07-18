@@ -92,6 +92,12 @@ class LiveState:
                 window_id, {"t_start": None, "t_end": None, "audio": None}
             )["audio"] = status
 
+    def window_iq(self, window_id: int, info: dict) -> None:
+        with self._lock:
+            self.windows.setdefault(
+                window_id, {"t_start": None, "t_end": None, "audio": None}
+            )["iq"] = info
+
     def window_info(self, window_id: int) -> dict | None:
         with self._lock:
             w = self.windows.get(window_id)
